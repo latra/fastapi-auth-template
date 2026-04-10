@@ -66,7 +66,7 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_password
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_DB=things_db
+POSTGRES_DB=database_name
 ```
 
 ### 4. Run the application

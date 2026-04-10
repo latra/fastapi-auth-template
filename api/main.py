@@ -8,25 +8,14 @@ from sqlalchemy import text
 
 load_dotenv()
 
-from database import Base, engine, DATABASE_TYPE
-from routes.auth import router as auth_router
+from database import Base, engine
+from routes.auth_router import router as auth_router
 
 
 @asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
     async with engine.begin() as conn:
-        if DATABASE_TYPE == "postgresql":
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        
         await conn.run_sync(Base.metadata.create_all)
-        
-        if DATABASE_TYPE == "postgresql":
-            await conn.execute(text(
-                "ALTER TABLE things ADD COLUMN IF NOT EXISTS meta_author VARCHAR(200) NOT NULL DEFAULT ''"
-            ))
-            await conn.execute(text(
-                "ALTER TABLE things ADD COLUMN IF NOT EXISTS type VARCHAR(20) NOT NULL DEFAULT 'notes'"
-            ))
     yield
 
 app = fastapi.FastAPI(lifespan=lifespan)
@@ -47,4 +36,4 @@ app.include_router(auth_router)
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello, World!"}
+    return {"STATUS": "OK"}
