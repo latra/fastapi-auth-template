@@ -11,6 +11,9 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.48",
     "bcrypt>=5.0.0",
     "alembic>=1.18.4",
+    "pyyaml>=6.0.3",
+    "google-auth[requests]>=2.49.2",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
