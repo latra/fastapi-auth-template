@@ -39,35 +39,72 @@ pip install -e ".[sqlite]"
 pip install -e ".[dev]"
 ```
 
-### 2. Configure environment variables
+### 2. Configure the application
 
-Copy the `.env.example` file to `.env` and adjust the values for your environment:
+Configuration is split between `config.yaml` (non-sensitive settings) and `.env` (secrets).
 
-```bash
-cp .env.example .env
+**`config.yaml`** — structure, database host/port, token TTL, etc.:
+
+```yaml
+app:
+  name: "FastAPI Backend"
+
+database:
+  type: "postgresql"   # sqlite | postgresql
+  host: "localhost"
+  port: 5432
+  database: "mydb"
+
+auth:
+  access_token_expire_minutes: 60
 ```
 
-### 3. Choose database
+**`.env`** — sensitive values only:
 
-In the `.env` file, configure `DATABASE_TYPE`:
-
-#### Option A: SQLite (default)
+```bash
+cp .env.sample .env
+```
 
 ```env
-DATABASE_TYPE=sqlite
+SECRET_KEY=your_secret_key
+ALLOWED_ORIGINS=*
+
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+
+# Only for SQLite
 SQLITE_DB_PATH=./data.db
 ```
 
-#### Option B: PostgreSQL
+### 3. Google OAuth (optional)
+
+First enable it in `config.yaml`:
+
+```yaml
+google:
+  enabled: true
+```
+
+When `enabled` is `false` or the section is absent, no Google-related endpoints are registered and none of the Google libraries are imported.
+
+Then:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services → Credentials → Create OAuth 2.0 Client ID**.
+2. Set the application type to **Web application**.
+3. Add the redirect URI (must match `GOOGLE_REDIRECT_URI`): `http://localhost:8000/auth/google/callback`.
+4. Copy the client ID and secret into `.env`:
 
 ```env
-DATABASE_TYPE=postgresql
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_password
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=database_name
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
 ```
+
+OAuth flow:
+- `GET /auth/google/login` — redirects to Google's consent screen.
+- `GET /auth/google/callback?code=...` — exchanges the code, creates or links the user, and returns a JWT.
+
+If a user already has an account with the same email, their Google ID is linked automatically. Email/password login remains unaffected.
 
 ### 4. Run the application
 
@@ -83,28 +120,35 @@ uvicorn main:app --reload
 ## Project structure
 
 ```
+config.yaml              # Non-sensitive app configuration
+.env                     # Secrets (not committed)
 api/
 ├── main.py              # Application entry point
-├── database.py          # Database configuration
-├── auth.py              # Authentication utilities
+├── config.py            # Settings class (loads yaml + env)
+├── database.py          # Database engine setup
+├── auth.py              # JWT utilities
 ├── models.py            # SQLAlchemy models
 ├── schemas.py           # Pydantic schemas
 ├── dependencies.py      # FastAPI dependencies
 ├── routes/              # API endpoints
-└── services/            # Business logic
+└── services/
+    ├── auth_service.py         # Email/password logic
+    └── google_auth_service.py  # Google OAuth logic
 ```
 
-## Environment variables
+## Configuration reference
 
-| Variable | Description | Default value |
-|----------|-------------|---------------|
-| `DATABASE_TYPE` | Database type: `sqlite` or `postgresql` | `sqlite` |
-| `SQLITE_DB_PATH` | Path to SQLite file | `./data.db` |
-| `POSTGRES_USER` | PostgreSQL user | `postgres` |
-| `POSTGRES_PASSWORD` | PostgreSQL password | `postgres` |
-| `POSTGRES_HOST` | PostgreSQL host | `localhost` |
-| `POSTGRES_PORT` | PostgreSQL port | `5432` |
-| `POSTGRES_DB` | PostgreSQL database name | `things_db` |
-| `SECRET_KEY` | Secret key for JWT | `change-me-in-production` |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiration in minutes | `60` |
-| `ALLOWED_ORIGINS` | Allowed CORS origins | `*` |
+| Source | Key | Description | Default |
+|--------|-----|-------------|---------|
+| `config.yaml` | `app.name` | Application name | `FastAPI Backend` |
+| `config.yaml` | `database.type` | `sqlite` or `postgresql` | `sqlite` |
+| `config.yaml` | `database.host/port/database` | PostgreSQL connection info | `localhost:5432/postgres` |
+| `config.yaml` | `auth.access_token_expire_minutes` | JWT TTL | `60` |
+| `.env` | `SECRET_KEY` | JWT signing key | `change-me-in-production` |
+| `.env` | `POSTGRES_USER` / `POSTGRES_PASSWORD` | DB credentials | — |
+| `.env` | `SQLITE_DB_PATH` | SQLite file path | `./data.db` |
+| `.env` | `ALLOWED_ORIGINS` | CORS origins (comma-separated or `*`) | `*` |
+| `config.yaml` | `google.enabled` | Enable Google OAuth endpoints | `false` |
+| `.env` | `GOOGLE_CLIENT_ID` | Google OAuth client ID | — |
+| `.env` | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | — |
+| `.env` | `GOOGLE_REDIRECT_URI` | Google OAuth redirect URI | `http://localhost:8000/auth/google/callback` |
