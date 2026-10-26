@@ -1,7 +1,7 @@
+import secrets
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import HTTPException, status
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,35 +15,47 @@ _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
-def build_authorization_url() -> str:
+class GoogleAuthError(Exception):
+    """OAuth flow failure. `code` is a short machine-readable reason sent to the frontend."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def generate_state() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def build_authorization_url(state: str) -> str:
     params = {
         "client_id": settings.google.client_id,
         "redirect_uri": settings.google.redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
-        "access_type": "offline",
+        "state": state,
         "prompt": "select_account",
     }
     return f"{_GOOGLE_AUTH_URL}?{urlencode(params)}"
 
 
 async def exchange_code(code: str) -> dict:
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            _GOOGLE_TOKEN_URL,
-            data={
-                "code": code,
-                "client_id": settings.google.client_id,
-                "client_secret": settings.google.client_secret,
-                "redirect_uri": settings.google.redirect_uri,
-                "grant_type": "authorization_code",
-            },
-        )
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to exchange code with Google",
-        )
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "code": code,
+                    "client_id": settings.google.client_id,
+                    "client_secret": settings.google.client_secret,
+                    "redirect_uri": settings.google.redirect_uri,
+                    "grant_type": "authorization_code",
+                },
+            )
+    except httpx.HTTPError:
+        raise GoogleAuthError("google_unavailable")
+    if resp.status_code != 200 or "id_token" not in resp.json():
+        raise GoogleAuthError("code_exchange_failed")
     return resp.json()
 
 
@@ -55,18 +67,18 @@ def verify_id_token(token: str) -> dict:
             settings.google.client_id,
         )
     except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Google ID token",
-        )
+        raise GoogleAuthError("invalid_id_token")
 
 
 async def handle_callback(db: AsyncSession, code: str) -> TokenResponse:
     tokens = await exchange_code(code)
     claims = verify_id_token(tokens["id_token"])
 
-    google_id: str = claims["sub"]
     email: str = claims.get("email", "")
+    if not email or not claims.get("email_verified"):
+        raise GoogleAuthError("email_not_verified")
+
+    google_id: str = claims["sub"]
     name: str = claims.get("name", email.split("@")[0])
     picture: str | None = claims.get("picture")
 
@@ -77,6 +89,8 @@ async def handle_callback(db: AsyncSession, code: str) -> TokenResponse:
         name=name,
         profile_picture=picture,
     )
+    if user is None:
+        raise GoogleAuthError("account_exists")
     await db.commit()
 
     return TokenResponse(access_token=create_access_token(subject=user.email))

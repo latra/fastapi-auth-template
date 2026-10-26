@@ -40,10 +40,15 @@ async def upsert_google_user(
     email: str,
     name: str,
     profile_picture: str | None,
-) -> User:
+) -> User | None:
+    """Returns None if the email belongs to a password account not yet linked to Google."""
     user = await get_by_google_id(db, google_id)
     if user is None:
         user = await get_by_email(db, email)
+        # Auto-linking a password account would let whoever registered that email
+        # with a password keep access to the Google user's account.
+        if user is not None and user.hashed_password is not None:
+            return None
 
     if user is None:
         user = await create(
@@ -54,7 +59,6 @@ async def upsert_google_user(
             google_id=google_id,
         )
     else:
-        # Link google_id if this email was already registered via password
         if user.google_id is None:
             user.google_id = google_id
         if profile_picture and not user.profile_picture:
