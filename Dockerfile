@@ -6,6 +6,7 @@ WORKDIR /code
 # Install project dependencies
 COPY ./pyproject.toml /code/pyproject.toml
 COPY ./README.md /code/README.md
+COPY ./config.yaml /code/config.yaml
 COPY ./api /code/api
 
 RUN pip install --no-cache-dir --upgrade pip \
